@@ -1,4 +1,4 @@
-name: VBS_TRAVEL
+name: FlightBookingApp
 options:
   bundleIdPrefix: vn.id.kien-developer
 targets:
