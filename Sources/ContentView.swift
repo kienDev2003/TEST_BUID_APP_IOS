@@ -2,12 +2,11 @@ import SwiftUI
 import WebKit
 
 struct ContentView: View {
-    // URL web app B2B của bạn
     let websiteUrl = URL(string: "https://flight-booking-b2b-ui.kien-developer.id.vn")!
 
     var body: some View {
         WebViewWrapper(url: websiteUrl)
-            .ignoresSafeArea() // Che phủ toàn màn hình (kể cả tai thỏ/dynamic island)
+            .ignoresSafeArea()
     }
 }
 
@@ -16,16 +15,14 @@ struct WebViewWrapper: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView()
-        
-        // Tắt hiệu ứng kéo nảy (bounce) để tạo cảm giác giống App Native thay vì Trình duyệt
-        webView.scrollView.bounces = false 
-        
-        let request = URLRequest(url: url)
-        webView.load(request)
+        webView.scrollView.bounces = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.isOpaque = false
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
+        webView.load(URLRequest(url: url))
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        // Không cần xử lý update cho logic webview tĩnh
-    }
+    func updateUIView(_ webView: WKWebView, context: Context) {}
 }
