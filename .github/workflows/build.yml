@@ -1,0 +1,43 @@
+name: Build iOS IPA Không Cần Mac
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Cho phép bạn bấm nút Run thủ công trên Github
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install Xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Build App
+        run: |
+          xcodebuild clean build \
+            -project FlightBookingApp.xcodeproj \
+            -scheme FlightBookingApp \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/FlightBookingApp.app Payload/
+          zip -r FlightBookingApp.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: FlightBookingApp-IPA
+          path: FlightBookingApp.ipa

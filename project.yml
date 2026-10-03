@@ -1,0 +1,16 @@
+name: FlightBookingApp
+options:
+  bundleIdPrefix: vn.id.kien-developer
+targets:
+  FlightBookingApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0" # Hỗ trợ từ iOS 15 trở lên
+    sources: [Sources]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        # Bypass chứng chỉ Apple Developer để có thể build thành công file IPA
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
