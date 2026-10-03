@@ -2,7 +2,7 @@ name: Build iOS IPA Không Cần Mac
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch: # Cho phép bạn bấm nút Run thủ công trên Github
 
 jobs:
