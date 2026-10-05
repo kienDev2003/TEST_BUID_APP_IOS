@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 struct ContentView: View {
-    let websiteUrl = URL(string: "https://flight-booking-b2b-ui.kien-developer.id.vn/main.html")!
+    let websiteUrl = URL(string: "https://flight-booking-b2b-ui.kien-developer.id.vn/pages/main.html")!
 
     var body: some View {
         WebViewWrapper(url: websiteUrl)
