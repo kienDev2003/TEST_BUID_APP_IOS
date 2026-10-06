@@ -133,11 +133,19 @@ struct WebViewWrapper: UIViewRepresentable {
                 .replacingOccurrences(of: "\n", with: " ")
             let js = """
             (function(){
-              var d=document.createElement('div');
-              d.textContent='[iOS] \(safe)';
-              d.style.cssText='position:fixed;left:8px;right:8px;top:50px;z-index:2147483647;background:rgba(0,0,0,.85);color:#0f0;font:12px monospace;padding:8px;border-radius:6px;word-break:break-all;pointer-events:none';
-              (document.body||document.documentElement).appendChild(d);
-              setTimeout(function(){d.remove()},6000);
+              var box=document.getElementById('__ios_dbg');
+              if(!box){
+                box=document.createElement('div');
+                box.id='__ios_dbg';
+                box.style.cssText='position:fixed;left:6px;right:6px;top:44px;z-index:2147483647;background:rgba(0,0,0,.85);color:#0f0;font:11px monospace;padding:6px;border-radius:6px;word-break:break-all;pointer-events:none';
+                (document.body||document.documentElement).appendChild(box);
+              }
+              var line=document.createElement('div');
+              line.textContent='[iOS] \(safe)';
+              box.appendChild(line);
+              while(box.children.length>8){box.removeChild(box.firstChild);}
+              clearTimeout(window.__iosDbgT);
+              window.__iosDbgT=setTimeout(function(){box.remove()},20000);
             })();
             """
             DispatchQueue.main.async {
@@ -176,6 +184,8 @@ struct WebViewWrapper: UIViewRepresentable {
             } else if action == "delete" {
                 let status = KeychainHelper.shared.deleteToken()
                 showDebug("DELETE status=\(status)")
+            } else if action == "log", let msg = dict["token"] as? String {
+                showDebug(msg)
             } else {
                 showDebug("action=\(action) nhưng token rỗng/null")
             }
