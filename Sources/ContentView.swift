@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import Security
 
 struct ContentView: View {
     let websiteUrl = URL(string: "https://flight-booking-b2b-ui.kien-developer.id.vn/pages/main.html")!
@@ -11,51 +12,63 @@ struct ContentView: View {
 }
 
 // ----------------------------------------
-// MARK: - Keychain Helper Đơn giản
+// MARK: - Keychain Helper
 // ----------------------------------------
 class KeychainHelper {
     static let shared = KeychainHelper()
     private let service = "vn.id.kien-developer.flightbooking"
     private let account = "refreshToken"
-    
+
+    // Query dùng chung để tìm item (KHÔNG chứa kSecValueData)
+    private var baseQuery: [CFString: Any] {
+        [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ]
+    }
+
     func saveToken(_ token: String) {
         let data = Data(token.utf8)
-        let query = [
-            kSecValueData: data,
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-        ] as CFDictionary
-        
-        SecItemDelete(query)
-        SecItemAdd(query, nil)
+
+        // Thử update trước
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary,
+                                         [kSecValueData: data] as CFDictionary)
+
+        if updateStatus == errSecSuccess {
+            print("Keychain update OK")
+            return
+        }
+
+        if updateStatus == errSecItemNotFound {
+            // Chưa có item -> thêm mới
+            var addQuery = baseQuery
+            addQuery[kSecValueData] = data
+            addQuery[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            print("Keychain add status:", addStatus, addStatus == errSecSuccess ? "(OK)" : "(LỖI)")
+        } else {
+            print("Keychain update LỖI, status:", updateStatus)
+        }
     }
-    
+
     func getToken() -> String? {
-        let query = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne
-        ] as CFDictionary
-        
-        var dataTypeRef: AnyObject?
-        let status = SecItemCopyMatching(query, &dataTypeRef)
-        
-        if status == errSecSuccess, let data = dataTypeRef as? Data {
+        var query = baseQuery
+        query[kSecReturnData] = true
+        query[kSecMatchLimit] = kSecMatchLimitOne
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecSuccess, let data = result as? Data {
             return String(data: data, encoding: .utf8)
         }
         return nil
     }
-    
+
     func deleteToken() {
-        let query = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account
-        ] as CFDictionary
-        SecItemDelete(query)
+        let status = SecItemDelete(baseQuery as CFDictionary)
+        print("Keychain delete status:", status)
     }
 }
 
@@ -72,17 +85,27 @@ struct WebViewWrapper: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = WKWebsiteDataStore.default()
-        
+
         config.userContentController.add(context.coordinator, name: "keychainBridge")
-        
-        if let savedToken = KeychainHelper.shared.getToken() {
-            let jsCode = "window.localStorage.setItem('vbs_refresh_token', '\(savedToken)');"
+
+        // Khôi phục token từ Keychain vào localStorage (chỉ khi localStorage đang trống)
+        if let savedToken = KeychainHelper.shared.getToken(),
+           let jsonData = try? JSONEncoder().encode(savedToken),
+           let jsonToken = String(data: jsonData, encoding: .utf8) {
+
+            let jsCode = """
+            try {
+                if (!window.localStorage.getItem('vbs_refresh_token')) {
+                    window.localStorage.setItem('vbs_refresh_token', \(jsonToken));
+                }
+            } catch (e) {}
+            """
             let userScript = WKUserScript(source: jsCode,
                                           injectionTime: .atDocumentStart,
                                           forMainFrameOnly: true)
             config.userContentController.addUserScript(userScript)
         }
-        
+
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.scrollView.bounces = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -93,6 +116,11 @@ struct WebViewWrapper: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
 
+        // Bật để debug bằng Safari Web Inspector (iOS 16.4+)
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
+
         webView.load(URLRequest(url: url))
         return webView
     }
@@ -100,21 +128,20 @@ struct WebViewWrapper: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {}
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
-        
-        // Hứng Message từ JS
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "keychainBridge" {
-                if let dict = message.body as? [String: Any] {
-                    let action = dict["action"] as? String
-                    
-                    if action == "save", let token = dict["token"] as? String {
-                        KeychainHelper.shared.saveToken(token)
-                        print("Đã lưu token vào Keychain")
-                    } else if action == "delete" {
-                        KeychainHelper.shared.deleteToken()
-                        print("Đã xoá token khỏi Keychain")
-                    }
-                }
+
+        // Hứng message từ JS
+        func userContentController(_ userContentController: WKUserContentController,
+                                   didReceive message: WKScriptMessage) {
+            print("Bridge received:", message.name, message.body)
+
+            guard message.name == "keychainBridge",
+                  let dict = message.body as? [String: Any],
+                  let action = dict["action"] as? String else { return }
+
+            if action == "save", let token = dict["token"] as? String, !token.isEmpty {
+                KeychainHelper.shared.saveToken(token)
+            } else if action == "delete" {
+                KeychainHelper.shared.deleteToken()
             }
         }
 
@@ -123,7 +150,7 @@ struct WebViewWrapper: UIViewRepresentable {
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
             if let url = navigationAction.request.url { UIApplication.shared.open(url) }
-            return nil 
+            return nil
         }
 
         func webView(_ webView: WKWebView,
