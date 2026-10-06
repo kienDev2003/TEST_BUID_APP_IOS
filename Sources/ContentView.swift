@@ -28,11 +28,11 @@ class KeychainHelper {
         ]
     }
 
-    // Trả về OSStatus để hiển thị debug (0 = thành công)
     @discardableResult
     func saveToken(_ token: String) -> OSStatus {
         let data = Data(token.utf8)
 
+        // Thử update trước, chưa có item thì thêm mới
         let updateStatus = SecItemUpdate(baseQuery as CFDictionary,
                                          [kSecValueData: data] as CFDictionary)
         if updateStatus == errSecSuccess { return errSecSuccess }
@@ -109,11 +109,6 @@ struct WebViewWrapper: UIViewRepresentable {
 
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        context.coordinator.webView = webView
-
-        if #available(iOS 16.4, *) {
-            webView.isInspectable = true
-        }
 
         webView.load(URLRequest(url: url))
         return webView
@@ -123,71 +118,17 @@ struct WebViewWrapper: UIViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
 
-        weak var webView: WKWebView?
-
-        // ===== DEBUG: hiện thông báo nổi trên trang (xoá khi xong) =====
-        func showDebug(_ text: String) {
-            let safe = text
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "'", with: "\\'")
-                .replacingOccurrences(of: "\n", with: " ")
-            let js = """
-            (function(){
-              var box=document.getElementById('__ios_dbg');
-              if(!box){
-                box=document.createElement('div');
-                box.id='__ios_dbg';
-                box.style.cssText='position:fixed;left:6px;right:6px;top:44px;z-index:2147483647;background:rgba(0,0,0,.85);color:#0f0;font:11px monospace;padding:6px;border-radius:6px;word-break:break-all;pointer-events:none';
-                (document.body||document.documentElement).appendChild(box);
-              }
-              var line=document.createElement('div');
-              line.textContent='[iOS] \(safe)';
-              box.appendChild(line);
-              while(box.children.length>8){box.removeChild(box.firstChild);}
-              clearTimeout(window.__iosDbgT);
-              window.__iosDbgT=setTimeout(function(){box.remove()},20000);
-            })();
-            """
-            DispatchQueue.main.async {
-                self.webView?.evaluateJavaScript(js, completionHandler: nil)
-            }
-        }
-
-        // Khi trang load xong: báo trạng thái bridge / localStorage / Keychain
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            let js = """
-            JSON.stringify({
-                bridge: !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.keychainBridge),
-                lsToken: !!localStorage.getItem('vbs_refresh_token')
-            })
-            """
-            webView.evaluateJavaScript(js) { [weak self] result, error in
-                let kc = KeychainHelper.shared.getToken() != nil
-                self?.showDebug("load: \(result as? String ?? "nil") keychain=\(kc)")
-            }
-        }
-
         // Hứng message từ JS
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
             guard message.name == "keychainBridge",
                   let dict = message.body as? [String: Any],
-                  let action = dict["action"] as? String else {
-                showDebug("bridge nhận message lạ")
-                return
-            }
+                  let action = dict["action"] as? String else { return }
 
             if action == "save", let token = dict["token"] as? String, !token.isEmpty {
-                let status = KeychainHelper.shared.saveToken(token)
-                let readBack = KeychainHelper.shared.getToken() != nil
-                showDebug("SAVE status=\(status) readBack=\(readBack)")
+                KeychainHelper.shared.saveToken(token)
             } else if action == "delete" {
-                let status = KeychainHelper.shared.deleteToken()
-                showDebug("DELETE status=\(status)")
-            } else if action == "log", let msg = dict["token"] as? String {
-                showDebug(msg)
-            } else {
-                showDebug("action=\(action) nhưng token rỗng/null")
+                KeychainHelper.shared.deleteToken()
             }
         }
 
