@@ -28,28 +28,22 @@ class KeychainHelper {
         ]
     }
 
-    func saveToken(_ token: String) {
+    // Trả về OSStatus để hiển thị debug (0 = thành công)
+    @discardableResult
+    func saveToken(_ token: String) -> OSStatus {
         let data = Data(token.utf8)
 
-        // Thử update trước
         let updateStatus = SecItemUpdate(baseQuery as CFDictionary,
                                          [kSecValueData: data] as CFDictionary)
-
-        if updateStatus == errSecSuccess {
-            print("Keychain update OK")
-            return
-        }
+        if updateStatus == errSecSuccess { return errSecSuccess }
 
         if updateStatus == errSecItemNotFound {
-            // Chưa có item -> thêm mới
             var addQuery = baseQuery
             addQuery[kSecValueData] = data
             addQuery[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            print("Keychain add status:", addStatus, addStatus == errSecSuccess ? "(OK)" : "(LỖI)")
-        } else {
-            print("Keychain update LỖI, status:", updateStatus)
+            return SecItemAdd(addQuery as CFDictionary, nil)
         }
+        return updateStatus
     }
 
     func getToken() -> String? {
@@ -66,9 +60,9 @@ class KeychainHelper {
         return nil
     }
 
-    func deleteToken() {
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        print("Keychain delete status:", status)
+    @discardableResult
+    func deleteToken() -> OSStatus {
+        return SecItemDelete(baseQuery as CFDictionary)
     }
 }
 
@@ -115,8 +109,8 @@ struct WebViewWrapper: UIViewRepresentable {
 
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        context.coordinator.webView = webView
 
-        // Bật để debug bằng Safari Web Inspector (iOS 16.4+)
         if #available(iOS 16.4, *) {
             webView.isInspectable = true
         }
@@ -129,19 +123,61 @@ struct WebViewWrapper: UIViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
 
+        weak var webView: WKWebView?
+
+        // ===== DEBUG: hiện thông báo nổi trên trang (xoá khi xong) =====
+        func showDebug(_ text: String) {
+            let safe = text
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: " ")
+            let js = """
+            (function(){
+              var d=document.createElement('div');
+              d.textContent='[iOS] \(safe)';
+              d.style.cssText='position:fixed;left:8px;right:8px;top:50px;z-index:2147483647;background:rgba(0,0,0,.85);color:#0f0;font:12px monospace;padding:8px;border-radius:6px;word-break:break-all;pointer-events:none';
+              (document.body||document.documentElement).appendChild(d);
+              setTimeout(function(){d.remove()},6000);
+            })();
+            """
+            DispatchQueue.main.async {
+                self.webView?.evaluateJavaScript(js, completionHandler: nil)
+            }
+        }
+
+        // Khi trang load xong: báo trạng thái bridge / localStorage / Keychain
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            let js = """
+            JSON.stringify({
+                bridge: !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.keychainBridge),
+                lsToken: !!localStorage.getItem('vbs_refresh_token')
+            })
+            """
+            webView.evaluateJavaScript(js) { [weak self] result, error in
+                let kc = KeychainHelper.shared.getToken() != nil
+                self?.showDebug("load: \(result as? String ?? "nil") keychain=\(kc)")
+            }
+        }
+
         // Hứng message từ JS
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
-            print("Bridge received:", message.name, message.body)
-
             guard message.name == "keychainBridge",
                   let dict = message.body as? [String: Any],
-                  let action = dict["action"] as? String else { return }
+                  let action = dict["action"] as? String else {
+                showDebug("bridge nhận message lạ")
+                return
+            }
 
             if action == "save", let token = dict["token"] as? String, !token.isEmpty {
-                KeychainHelper.shared.saveToken(token)
+                let status = KeychainHelper.shared.saveToken(token)
+                let readBack = KeychainHelper.shared.getToken() != nil
+                showDebug("SAVE status=\(status) readBack=\(readBack)")
             } else if action == "delete" {
-                KeychainHelper.shared.deleteToken()
+                let status = KeychainHelper.shared.deleteToken()
+                showDebug("DELETE status=\(status)")
+            } else {
+                showDebug("action=\(action) nhưng token rỗng/null")
             }
         }
 
