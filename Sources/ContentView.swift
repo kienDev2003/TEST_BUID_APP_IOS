@@ -3,14 +3,13 @@ import WebKit
 import Security
 
 struct ContentView: View {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyyMMddHHmmss"
-
-    let version = formatter.string(from: Date())
-
-    let websiteUrl = URL(
-        string: "https://flight-booking-b2b-ui.kien-developer.id.vn/pages/main.html?version=\(version)"
-    )!
+    var websiteUrl: URL {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMddHHmmss"
+        let version = formatter.string(from: Date())
+        
+        return URL(string: "https://flight-booking-b2b-ui.kien-developer.id.vn/pages/main.html?version=\(version)")!
+    }
 
     var body: some View {
         WebViewWrapper(url: websiteUrl)
